@@ -1,0 +1,349 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>The Gonad Challenge: The RNA extraction journey</title>
+    <style>
+        :root {
+            --soft-grape: #3A2F5F;      --blueberry-milk: #4B3C7A;
+            --lilac-pop: #C9A7FF;       --vivid-violet: #9D6CFF;
+            --candy-pink: #FF7AD9;      --ice-mint: #7CFFE5;
+            --text-pri: #FFFFFF;
+        }
+
+        body { 
+            background: var(--soft-grape); color: var(--text-pri); 
+            font-family: 'Segoe UI', sans-serif; text-align: center; 
+            margin: 0; overflow: hidden; user-select: none; overscroll-behavior: none;
+        }
+
+        #ui { padding: 10px; background: var(--blueberry-milk); border-bottom: 3px solid var(--lilac-pop); min-height: 105px; box-sizing: border-box; }
+        #stats { font-weight: 900; font-size: 1.2rem; color: var(--lilac-pop); margin-top: 5px; }
+        #mistake-count { color: var(--candy-pink); }
+
+        canvas { display: block; margin: 0 auto; touch-action: none; }
+
+        .msg-box { 
+            position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%); 
+            background: var(--blueberry-milk); padding: 20px; border: 3px solid var(--lilac-pop); 
+            display: none; width: 85%; max-width: 420px; z-index: 100; border-radius: 12px; 
+            box-shadow: 0 0 50px rgba(0,0,0,0.8);
+        }
+
+        button { 
+            background: var(--lilac-pop); color: var(--soft-grape); font-weight: 800; 
+            border: none; padding: 12px 20px; cursor: pointer; border-radius: 6px; 
+            text-transform: uppercase; margin: 5px; font-size: 1rem;
+        }
+
+        #nextBtn { background: var(--ice-mint); }
+        #reportBtn { 
+            background: var(--ice-mint); position: absolute; bottom: 20px; left: 50%; 
+            transform: translateX(-50%); display: none; z-index: 50;
+        }
+        
+        .report-table { width: 100%; border-collapse: collapse; text-align: left; font-size: 0.85rem; margin-top: 10px;}
+        .report-table td { padding: 6px; border-bottom: 1px solid var(--lilac-pop); }
+        .report-val { font-weight: bold; color: var(--ice-mint); text-align: right; }
+
+        .project-note {
+            margin-top: 15px; padding: 12px; background: rgba(0,0,0,0.3);
+            border-left: 4px solid var(--candy-pink); text-align: left;
+            font-size: 0.8rem; line-height: 1.4; color: #EEE;
+        }
+    </style>
+</head>
+<body>
+
+    <div id="ui">
+        <h2 id="phase-title" style="margin:0; font-size:1.2rem;">Phase</h2>
+        <p id="instruction" style="font-size: 0.85rem; margin: 4px 0;">Instruction</p>
+        <div id="stats">MISTAKES: <span id="mistake-count">0</span> / 7</div>
+    </div>
+
+    <canvas id="gameCanvas"></canvas>
+    
+    <button id="reportBtn" onclick="Phase5.showReportWindow()">Show Lab Report</button>
+
+    <div id="msgBox" class="msg-box">
+        <h3 id="msgTitle">TITLE</h3>
+        <div id="msgText">Text</div>
+        <button id="retryBtn" onclick="loadLevel(phase)">Retry</button>
+        <button id="closeBtn" onclick="closeMsgBox()" style="display:none;">Close</button>
+        <button id="nextBtn" onclick="advanceLevel()">Continue</button>
+    </div>
+
+<script>
+    /** --- ENGINE --- **/
+    const canvas = document.getElementById('gameCanvas');
+    const ctx = canvas.getContext('2d');
+    const msgBox = document.getElementById('msgBox');
+    const msgText = document.getElementById('msgText');
+    const nextBtn = document.getElementById('nextBtn');
+    const retryBtn = document.getElementById('retryBtn');
+    const closeBtn = document.getElementById('closeBtn');
+    const reportBtn = document.getElementById('reportBtn');
+    const mistakeDisplay = document.getElementById('mistake-count');
+
+    let gameActive = true, phase = 1, currentLevel;
+    let lastMx = 0, lastMy = 0, mouseVel = 0, isDown = false;
+    let p1Mistakes = 0, p2MaxTemp = 0, p2TimeRemaining = 0;
+    
+    let isTouchDevice = 'ontouchstart' in window;
+    let visualYOffset = isTouchDevice ? -70 : 0; 
+
+    function resize() {
+        canvas.width = window.innerWidth;
+        canvas.height = window.innerHeight - document.getElementById('ui').offsetHeight;
+        if(currentLevel && currentLevel.init) currentLevel.init();
+    }
+    window.addEventListener('resize', resize);
+    resize();
+
+    function getCoords(e) {
+        const rect = canvas.getBoundingClientRect();
+        let clientX = e.touches ? e.touches[0].clientX : e.clientX;
+        let clientY = e.touches ? e.touches[0].clientY : e.clientY;
+        return { x: clientX - rect.left, y: clientY - rect.top };
+    }
+
+    function inputStart(e) {
+        if (!gameActive && phase !== 5) return;
+        isDown = true;
+        const pos = getCoords(e);
+        const logicY = (phase === 3) ? pos.y + visualYOffset : pos.y;
+        lastMx = pos.x; lastMy = logicY; // Glitch fix sync
+        if (currentLevel.onClick) currentLevel.onClick(pos.x, logicY);
+    }
+
+    function inputMove(e) {
+        const pos = getCoords(e);
+        const logicY = (phase === 3) ? pos.y + visualYOffset : pos.y;
+        mouseVel = Math.sqrt((pos.x - lastMx)**2 + (logicY - lastMy)**2);
+        if (gameActive && currentLevel.onMove) currentLevel.onMove(pos.x, logicY, pos.x - lastMx, logicY - lastMy);
+        lastMx = pos.x; lastMy = logicY;
+    }
+
+    canvas.addEventListener('mousedown', inputStart);
+    canvas.addEventListener('mousemove', inputMove);
+    window.addEventListener('mouseup', () => isDown = false);
+    canvas.addEventListener('touchstart', (e) => { e.preventDefault(); inputStart(e); }, {passive: false});
+    canvas.addEventListener('touchmove', (e) => { e.preventDefault(); inputMove(e); }, {passive: false});
+
+    function closeMsgBox() { msgBox.style.display = 'none'; }
+
+    function advanceLevel() { 
+        if (phase === 5) { phase = 1; p1Mistakes = 0; p2MaxTemp = 0; p2TimeRemaining = 0; } 
+        else { phase++; }
+        loadLevel(phase); 
+    }
+
+    function loadLevel(p) {
+        phase = p; msgBox.style.display = 'none'; gameActive = true;
+        nextBtn.innerText = "CONTINUE"; nextBtn.style.display = "none";
+        retryBtn.style.display = "inline-block";
+        closeBtn.style.display = "none";
+        reportBtn.style.display = "none";
+        canvas.style.cursor = (p === 3) ? "none" : "crosshair"; 
+
+        if(p === 1) currentLevel = Phase1;
+        else if(p === 2) currentLevel = Phase2;
+        else if(p === 3) currentLevel = Phase3;
+        else if(p === 4) currentLevel = Phase4;
+        else if(p === 5) currentLevel = Phase5;
+        
+        document.getElementById('phase-title').innerText = currentLevel.title;
+        document.getElementById('instruction').innerText = currentLevel.instruction;
+        document.getElementById('stats').style.display = (p === 1) ? 'block' : 'none';
+        if (currentLevel.init) currentLevel.init();
+    }
+
+    function showResult(title, bodyHtml, success, showNext = true) {
+        gameActive = false;
+        document.getElementById('msgTitle').innerText = title;
+        document.getElementById('msgTitle').style.color = success ? '#7CFFE5' : '#FF7AD9';
+        msgText.innerHTML = bodyHtml;
+        nextBtn.style.display = showNext ? 'inline-block' : 'none';
+        retryBtn.style.display = success ? "none" : "inline-block";
+        msgBox.style.display = 'block';
+    }
+
+    function gameLoop() {
+        ctx.setTransform(1, 0, 0, 1, 0, 0);
+        ctx.clearRect(0, 0, canvas.width, canvas.height);
+        if(currentLevel) {
+            if(gameActive || phase === 5) currentLevel.update();
+            currentLevel.draw();
+        }
+        if (phase === 3 && gameActive) {
+            ctx.strokeStyle = "#AAA"; ctx.lineWidth = 5; ctx.lineCap = "round";
+            const grip = isDown ? 2 : 18;
+            ctx.beginPath(); ctx.moveTo(lastMx - 20, lastMy - 50); ctx.lineTo(lastMx - grip, lastMy); ctx.stroke();
+            ctx.beginPath(); ctx.moveTo(lastMx + 20, lastMy - 50); ctx.lineTo(lastMx + grip, lastMy); ctx.stroke();
+        }
+        requestAnimationFrame(gameLoop);
+    }
+
+    /** --- PHASE 1: FIND TWO GONADS AMONG THE SALT CRYSTALS --- **/
+    const Phase1 = { 
+        title: "1. Gonad Search in RNAlater", instruction: "Retrieve one of the two gonads from the RNAlater solution. Do not mistake them for salt crystals.", decoys: [], gonads: [], mistakes: 0, 
+        init() { 
+            this.mistakes = 0; mistakeDisplay.innerText = 0; this.decoys = []; this.gonads = []; 
+            // 200 Mixed Shape Decoys
+            for(let i=0; i<200; i++) {
+                let type = Math.floor(Math.random() * 3); // 0: Needle, 1: Cube, 2: Grain
+                this.decoys.push({ 
+                    x: Math.random()*canvas.width, y: Math.random()*canvas.height, 
+                    w: type === 0 ? 1.5 : (type === 1 ? 5 : 4), 
+                    h: type === 0 ? 15 : (type === 1 ? 5 : 4), 
+                    type: type,
+                    angle: Math.random()*Math.PI, vx: (Math.random()-0.5)*0.5, vy: (Math.random()-0.5)*0.5, flash: 0 
+                });
+            }
+            for(let i=0; i<2; i++) this.gonads.push({ x: Math.random()*(canvas.width-40)+20, y: Math.random()*(canvas.height-40)+20, w: 1.2, h: 18, angle: Math.random()*Math.PI, vx: (Math.random()-0.5)*0.5, vy: (Math.random()-0.5)*0.5 }); 
+        }, 
+        update() { 
+            this.decoys.forEach(d => { d.x+=d.vx; d.y+=d.vy; if(d.x<0)d.x=canvas.width; if(d.x>canvas.width)d.x=0; if(d.y<0)d.y=canvas.height; if(d.y>canvas.height)d.y=0; if(d.flash>0)d.flash--; }); 
+            this.gonads.forEach(g => { g.x+=g.vx; g.y+=g.vy; if(g.x<0)g.x=canvas.width; if(g.x>canvas.width)g.x=0; if(g.y<0)g.y=canvas.height; if(g.y>canvas.height)g.y=0; }); 
+        }, 
+        draw() { 
+            ctx.fillStyle = "#E6E1FF"; ctx.fillRect(0,0,canvas.width, canvas.height); 
+            this.decoys.forEach(d => { 
+                ctx.save(); ctx.translate(d.x, d.y); ctx.rotate(d.angle); ctx.fillStyle = d.flash > 0 ? "#9D6CFF" : "#FFFFFF"; 
+                if(d.type === 2) { // Grain/Triangle
+                    ctx.beginPath(); ctx.moveTo(0, -d.h/2); ctx.lineTo(d.w/2, d.h/2); ctx.lineTo(-d.w/2, d.h/2); ctx.closePath(); ctx.fill();
+                } else { // Needle/Cube
+                    ctx.fillRect(-d.w/2, -d.h/2, d.w, d.h); 
+                }
+                ctx.restore(); 
+            }); 
+            this.gonads.forEach(g => { ctx.save(); ctx.translate(g.x, g.y); ctx.rotate(g.angle); ctx.fillStyle = "#FFFFFF"; ctx.fillRect(-g.w/2, -g.h/2, g.w, g.h); ctx.restore(); }); 
+        }, 
+        onClick(mx, my) { 
+            let hit = this.gonads.find(g => Math.sqrt((mx-g.x)**2 + (my-g.y)**2) < 25); 
+            if(hit) return showResult("Success!", "A miracle occurred. RNA isolated. <p>But we were not that lucky. We began by dutifully following the standard tissue collection protocol: dissect the gonads, drop them into RNAlater, feel professional. Unfortunately, the gonads were microscopic and, by the time RNA isolation came around, had vanished into a glittering field of salt crystals. From that point on, every RNA extraction felt like a gamble. Were we isolating RNA from the gonads… or proudly extracting it from a particularly ambitious grain of salt?. ", true); 
+            let closest = null, minD = 45; this.decoys.forEach(d => { let dist = Math.sqrt((mx-d.x)**2 + (my-d.y)**2); if(dist < minD) { minD = dist; closest = d; } }); 
+            if(closest) closest.flash = 25; this.mistakes++; p1Mistakes = this.mistakes; mistakeDisplay.innerText = this.mistakes; 
+            if(this.mistakes >= 7) showResult("FAILED", "You’ve picked up too many salt decoys. <p> And we did too... We began by dutifully following the standard tissue collection protocol: dissect the gonads, drop them into RNAlater, feel professional. Unfortunately, the gonads were microscopic and, by the time RNA isolation came around, had vanished into a glittering field of salt crystals. From that point on, every RNA extraction felt like a gamble. Were we isolating RNA from the gonads… or proudly extracting it from a particularly ambitious grain of salt?", false); 
+        } 
+    };
+
+    /** --- PHASE 2: SNAP-FREEZED TISSUE GRIND --- **/
+    const Phase2 = {
+        title: "2. Snap-frozen gonads are thawing quickly.", instruction: "Grind while frozen! Hurry! Beware of rising temperatures.", progress: 0, temp: 0, timeLeft: 15, fragments: [],
+        init() { this.progress = 0; this.temp = 0; this.timeLeft = 15; this.fragments = []; for(let i=0; i<110; i++) this.fragments.push({ rx: (Math.random()-0.5)*130, ry: (Math.random()-0.5)*130, sz: Math.random()*6+2 }); },
+        update() { 
+            this.timeLeft -= (1/60); 
+            if (this.temp > 0) this.temp -= 0.45; 
+            if (this.timeLeft <= 0) showResult("TIME EXPIRED", "The sample warmed up. RNA did not survive. <p>After our unsuccessful search for the gonads in RNAlater, we decided to snap-freeze them instead. This also failed spectacularly. The tissue was so small that it likely thawed almost the moment we looked at it.", false); 
+            if (this.temp >= 100) showResult("BOILED", "Homogenized too fast. Friction heat turned the sample into mush. <p>After our unsuccessful search for the gonads in RNAlater, we decided to snap-freeze them instead. This also failed spectacularly. The tissue was so small that it likely thawed almost the moment we looked at it.", false); 
+            if (this.progress >= 100) { p2TimeRemaining = this.timeLeft; showResult("SUCCESS", "Smooth grind. No heat. No mush. <p>Not on our case, though. After our unsuccessful search for the gonads in RNAlater, we decided to snap-freeze them instead. This also failed spectacularly. The tissue was so small that it likely thawed almost the moment we looked at it.", true); } 
+        },
+        draw() { ctx.fillStyle = "#3A2F5F"; ctx.fillRect(0,0,canvas.width, canvas.height); const spread = this.progress / 100; const cx = canvas.width/2, cy = canvas.height/2; const currentColor = `rgb(${Math.floor(124+(255-124)*(this.temp/100))},${Math.floor(255+(108-255)*(this.temp/100))},229)`; ctx.save(); if (this.progress < 90) { ctx.globalAlpha = 1-spread; ctx.fillStyle = currentColor; ctx.beginPath(); ctx.arc(cx, cy, 55*(1-spread), 0, Math.PI*2); ctx.fill(); } ctx.globalAlpha = 1.0; ctx.fillStyle = currentColor; this.fragments.forEach(f => { let dx = cx+(f.rx*spread); let dy = cy+(f.ry*spread); ctx.beginPath(); ctx.arc(dx, dy, f.sz*(1-spread*0.4), 0, Math.PI*2); ctx.fill(); }); ctx.restore(); const bw = canvas.width - 60; ctx.fillStyle = "white"; ctx.font = "bold 14px sans-serif"; ctx.fillText(`TIME: ${Math.max(0, this.timeLeft).toFixed(1)}s`, 30, canvas.height-110); ctx.fillStyle = "#4B3C7A"; ctx.fillRect(30, canvas.height-100, bw, 6); ctx.fillStyle = "white"; ctx.fillRect(30, canvas.height-100, bw*(this.timeLeft/15), 6); ctx.fillText("HEAT", 30, canvas.height-75); ctx.fillStyle = this.temp > 75 ? "#FF7AD9" : "#7CFFE5"; ctx.fillRect(30, canvas.height-65, bw*(this.temp/100), 20); ctx.fillStyle = "#C9A7FF"; ctx.fillRect(30, canvas.height-25, bw*(this.progress/100), 10); },
+        onClick() { this.progress += 4.5; this.temp += 14.5; }
+    };
+
+    /** --- PHASE 3: GONADS DISSECTION --- **/
+    const Phase3 = { 
+        title: "3. The entire gonad–mesonephros complex is now in RNAlater", instruction: "Carefully separate the gonads from the GMC and shake them into the kit tube (they will, of course, stick to the tweezers).", gonads: [], tube: { x: 0, y: 0, w: 90, h: 120, offset: 0 }, heldIdx: -1, collected: 0, shakeEnergy: 0, 
+        init() { this.collected = 0; this.heldIdx = -1; this.shakeEnergy = 0; this.tube = { x: canvas.width - 120, y: canvas.height/2 - 60, w: 90, h: 120, offset: 0 }; const cx = canvas.width/2, cy = canvas.height/2; this.gonads = [ { x: cx-18, y: cy, state: 'attached', punctured: false }, { x: cx+18, y: cy, state: 'attached', punctured: false } ]; },
+        update() { this.tube.offset = Math.sin(Date.now() * 0.0012) * 35; if (this.heldIdx !== -1) { let g = this.gonads[this.heldIdx]; const ty = this.tube.y + this.tube.offset; const overTube = (lastMx > this.tube.x - 30 && lastMx < this.tube.x + this.tube.w + 30 && lastMy > ty - 20 && lastMy < ty + 60); if (overTube) { if (mouseVel > 12) this.shakeEnergy += mouseVel * 0.12; if (this.shakeEnergy > (g.punctured ? 60 : 35)) { g.state = 'tubed'; this.collected++; this.heldIdx = -1; this.shakeEnergy = 0; } } this.shakeEnergy *= 0.98; } if(this.collected === 2 && gameActive) showResult("FAILURE", "Salts inhibited yield. <p>This time, we decided to store the entire gonad–mesonephros complex in RNAlater and planned to separate the gonads just before RNA isolation. We drew inspiration from our colleagues, who successfully use the same approach, just with a different tissue. <p>It didn’t work here either. We even sought help from the GeneCore facility at BIOCEV to master the isolation. Unfortunately, it turned out that even they were unable to isolate RNA from these samples. According to their assessment, salts from the RNAlater interfered with the kit chemistry. Over 50 samples were stored this way. <p>This level cannot be won.", false, true); },
+        draw() { ctx.fillStyle = "#3A2F5F"; ctx.fillRect(0,0,canvas.width, canvas.height); const cx = canvas.width/2, cy = canvas.height/2; ctx.fillStyle = "rgba(144,122,214,0.25)"; ctx.strokeStyle = "rgba(201,167,255,0.5)"; ctx.lineWidth = 1.5; [ -1, 1 ].forEach(side => { ctx.beginPath(); ctx.moveTo(cx, cy); ctx.bezierCurveTo(cx+(10*side),cy-40,cx+(45*side),cy-140,cx+(5*side),cy-160); ctx.bezierCurveTo(cx+(70*side),cy-60,cx+(70*side),cy+60,cx+(5*side),cy+160); ctx.bezierCurveTo(cx+(45*side),cy+140,cx+(10*side),cy+40,cx,cy); ctx.fill(); ctx.stroke(); }); const ty = this.tube.y + this.tube.offset; ctx.strokeStyle = "#7CFFE5"; ctx.fillStyle = "rgba(124,255,229,0.1)"; ctx.beginPath(); ctx.moveTo(this.tube.x, ty); ctx.lineTo(this.tube.x+this.tube.w, ty); ctx.lineTo(this.tube.x+this.tube.w, ty+80); ctx.quadraticCurveTo(this.tube.x+this.tube.w,ty+110,this.tube.x+(this.tube.w/2),ty+110); ctx.quadraticCurveTo(this.tube.x,ty+110,this.tube.x,ty+80); ctx.closePath(); ctx.fill(); ctx.stroke(); ctx.fillStyle = "#7CFFE5"; ctx.font = "bold 11px sans-serif"; ctx.textAlign="center"; ctx.fillText("KIT TUBE", this.tube.x+(this.tube.w/2), ty+55); this.gonads.forEach(g => { if (g.state === 'tubed') return; ctx.fillStyle = g.punctured ? "#FF7AD9" : "#FFFFFF"; let gx = (g.state === 'stuck') ? lastMx : g.x, gy = (g.state === 'stuck') ? (g.punctured ? lastMy - 5 : lastMy + 10) : g.y; ctx.beginPath(); ctx.arc(gx, gy, 11, 0, Math.PI*2); ctx.fill(); }); if (this.heldIdx !== -1) { ctx.fillStyle = "white"; ctx.font = "bold 12px sans-serif"; ctx.fillText("SHAKE!", lastMx, lastMy-65); ctx.fillStyle = "#4B3C7A"; ctx.fillRect(lastMx-25, lastMy-55, 50, 6); ctx.fillStyle = "#7CFFE5"; ctx.fillRect(lastMx-25, lastMy-55, (this.shakeEnergy/(this.gonads[this.heldIdx].punctured ? 60 : 35)) * 50, 6); } },
+        onClick(mx, my) { if (this.heldIdx === -1) { this.heldIdx = this.gonads.findIndex(g => g.state === 'attached' && Math.sqrt((mx-g.x)**2 + (my-g.y)**2) < 35); if(this.heldIdx !== -1) { this.gonads[this.heldIdx].state = 'stuck'; this.shakeEnergy = 0; } } else { this.gonads[this.heldIdx].punctured = true; } }
+    };
+
+    /** --- PHASE 4: MAGIC BALL --- **/
+    const Phase4 = { 
+        title: "4. The Magic Ball", instruction: "Place the two white spheres (gonads) onto the steel ball. Fling it! Homogenize!", ball: { x: 0, y: 0, vx: 0, vy: 0, r: 45 }, gonads: [], particles: [], progress: 0, heldIdx: -1,
+        init() { this.progress = 0; this.heldIdx = -1; this.ball = { x: canvas.width/2, y: canvas.height/2, vx: 0, vy: 0, r: 45 }; this.particles = []; this.gonads = [ { x: 50, y: canvas.height-100, state: 'table' }, { x: 120, y: canvas.height-100, state: 'table' } ]; },
+        update() {
+            this.ball.x += this.ball.vx; this.ball.y += this.ball.vy;
+            this.ball.vx *= 0.98; this.ball.vy *= 0.98;
+            const m = 50; if (this.ball.x<m){this.ball.x=m; this.ball.vx*=-0.8;} if (this.ball.x>canvas.width-m){this.ball.x=canvas.width-m; this.ball.vx*=-0.8;} if (this.ball.y<m){this.ball.y=m; this.ball.vy*=-0.8;} if (this.ball.y>canvas.height-m){this.ball.y=canvas.height-m; this.ball.vy*=-0.8;}
+            let s = Math.sqrt(this.ball.vx**2 + this.ball.vy**2);
+            this.gonads.forEach(g => {
+                if (g.state === 'onBall') {
+                    g.x = this.ball.x + g.relX; g.y = this.ball.y + g.relY;
+                    if (s > 2.0) {
+                        this.progress += s * 0.0035; 
+                        if (Math.random() < 0.6) this.particles.push({ x: g.x + (Math.random()-0.5)*15, y: g.y + (Math.random()-0.5)*15, vx: (Math.random()-0.5)*s*0.8, vy: (Math.random()-0.5)*s*0.8, life: 1.0, sz: Math.random()*4+1, pR: this.progress/100 });
+                    }
+                }
+            });
+            this.particles.forEach((p, i) => { p.x += p.vx; p.y += p.vy; p.life -= 0.025; if (p.life <= 0) this.particles.splice(i, 1); });
+            if (this.progress >= 100) showResult("SUCCESS!", "The RNA in the gonads is safely protected from heat by the steel ball’s impressive thermal capacity and kept at −80 °C. The very same ball is then used for homogenization, meaning there is no longer any need to hunt for invisible tissue inside the tube. <p>All methodological problems were ultimately solved by this magic ball, a revelation bestowed upon us by the GeneCore facility at BIOCEV. We collected all the samples again using this method, and this time, everything worked as intended.", true, true);
+        },
+        draw() {
+            ctx.fillStyle = "#3A2F5F"; ctx.fillRect(0,0,canvas.width, canvas.height);
+            let grad = ctx.createRadialGradient(this.ball.x-10, this.ball.y-10, 5, this.ball.x, this.ball.y, 45); grad.addColorStop(0, '#FFFFFF'); grad.addColorStop(1, '#777777');
+            ctx.fillStyle = grad; ctx.beginPath(); ctx.arc(this.ball.x, this.ball.y, 45, 0, Math.PI*2); ctx.fill();
+            this.gonads.forEach(g => {
+                let pR = this.progress/100; ctx.fillStyle = g.state === 'onBall' ? `rgb(${124+(157-124)*pR},${255+(108-255)*pR},229)` : "#FFF";
+                let drawX = (this.heldIdx !== -1 && this.gonads[this.heldIdx] === g) ? lastMx : g.x;
+                let drawY = (this.heldIdx !== -1 && this.gonads[this.heldIdx] === g) ? lastMy : g.y;
+                if (g.state === 'onBall') { drawX+=(Math.random()-0.5)*pR*12; drawY+=(Math.random()-0.5)*pR*12; }
+                ctx.beginPath(); ctx.arc(drawX, drawY, Math.max(2, 20*(1-pR)), 0, Math.PI*2); ctx.fill();
+            });
+            this.particles.forEach(p => { ctx.fillStyle = `rgba(${124+(157-124)*p.pR},${255+(108-255)*p.pR},229,${p.life})`; ctx.beginPath(); ctx.arc(p.x, p.y, p.sz, 0, Math.PI*2); ctx.fill(); });
+            ctx.fillStyle = "#C9A7FF"; ctx.fillRect(30, 40, (canvas.width-60)*(this.progress/100), 10);
+        },
+        onMove(mx, my, dx, dy) {
+            if (this.heldIdx !== -1 && Math.sqrt((mx-this.ball.x)**2+(my-this.ball.y)**2)<60) {
+                let g = this.gonads[this.heldIdx]; g.state='onBall'; g.relX=mx-this.ball.x; g.relY=my-this.ball.y; this.heldIdx=-1;
+            }
+            if (Math.sqrt((mx-this.ball.x)**2+(my-this.ball.y)**2)<80) { this.ball.vx+=dx*0.6; this.ball.vy+=dy*0.6; }
+        },
+        onClick(mx, my) { this.heldIdx = this.gonads.findIndex(g => g.state === 'table' && Math.sqrt((mx-g.x)**2 + (my-g.y)**2) < 40); }
+    };
+
+    /** --- PHASE 5: METAL BALLS CELEBRATION --- **/
+    const Phase5 = {
+        title: "Yay! You made it! The RNA made it too.", instruction: "Enjoy the magic balls. Tap for the Lab Report.", balls: [],
+        init() { this.balls = []; reportBtn.style.display = "block"; },
+        update() {
+            if (this.balls.length < 500) { for(let i=0; i<6; i++) this.balls.push({ x: Math.random()*canvas.width, y: -20, vx: (Math.random()-0.5)*8, vy: Math.random()*4+2, r: Math.random()*7+4 }); }
+            this.balls.forEach(b => { 
+                b.vy += 0.85; // REALISTIC HEAVY GRAVITY
+                b.x += b.vx; b.y += b.vy; 
+                if (b.y > canvas.height - b.r) { 
+                    b.y = canvas.height - b.r; 
+                    b.vy *= -0.25; // INELASTIC METAL THUD
+                    b.vx *= 0.6;  // HIGH FLOOR FRICTION
+                } 
+                if (b.x < b.r || b.x > canvas.width - b.r) { b.vx *= -0.4; b.x = b.x < b.r ? b.r : canvas.width - b.r; } 
+            });
+        },
+        draw() {
+            ctx.fillStyle = "#3A2F5F"; ctx.fillRect(0,0,canvas.width, canvas.height);
+            this.balls.forEach(b => { 
+                let metal = ctx.createRadialGradient(b.x - b.r*0.3, b.y - b.r*0.3, b.r*0.1, b.x, b.y, b.r);
+                metal.addColorStop(0, '#FFFFFF'); metal.addColorStop(0.4, '#BCC6CC'); metal.addColorStop(0.8, '#708090'); metal.addColorStop(1, '#2F4F4F'); 
+                ctx.fillStyle = metal; ctx.beginPath(); ctx.arc(b.x, b.y, b.r, 0, Math.PI*2); ctx.fill(); 
+            });
+            ctx.fillStyle = "#7CFFE5"; ctx.font = "bold 24px sans-serif"; ctx.textAlign="center"; ctx.fillText("CONGRATS!", canvas.width/2, canvas.height/2);
+        },
+        onMove(mx, my, dx, dy) { this.balls.forEach(b => { if (Math.sqrt((mx-b.x)**2+(my-b.y)**2)<90) { b.vx += (b.x-mx)*0.15+dx*0.25; b.vy += (b.y-my)*0.15+dy*0.25; } }); },
+        onClick() { /* NO TRIGGER */ },
+        showReportWindow() {
+            const acc = Math.max(0, 100 - (p1Mistakes * 14.2)).toFixed(0);
+            let table = `<table class="report-table">
+                <tr><td>Search Accuracy</td><td class="report-val">${acc}%</td></tr>
+                <tr><td>Tissue Yield</td><td class="report-val">100%</td></tr>
+                <tr><td>RNA Integrity</td><td class="report-val" style="color:#7CFFE5">RIN 10.0</td></tr>
+            </table>
+            <div class="project-note">Failure was part of the method. </div>`;
+            document.getElementById('msgTitle').innerText = "A report, more or less:";
+            document.getElementById('msgTitle').style.color = "#7CFFE5";
+            msgText.innerHTML = table;
+            nextBtn.innerText = "Restart the Challenge"; nextBtn.style.display = "inline-block";
+            closeBtn.style.display = "inline-block"; retryBtn.style.display = "none";
+            msgBox.style.display = 'block';
+        }
+    };
+
+    loadLevel(1); 
+    gameLoop();
+</script>
+</body>
+</html>
